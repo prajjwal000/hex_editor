@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -12,13 +13,19 @@ func main() {
 	var fileRead string
 	var fileWrite string
 	var writeBool bool
-	flag.StringVar(&fileRead, "readFile", "testread", "filename")
-	flag.StringVar(&fileWrite, "writeFile", "testwrite", "filename")
+	flag.StringVar(&fileRead, "readFile", "cmd/term/testread", "filename")
+	flag.StringVar(&fileWrite, "writeFile", "cmd/term/testwrite", "filename")
 	flag.BoolVar(&writeBool, "w", false, "Enable to write")
 	flag.Parse()
 
-	writeFile, _ := os.OpenFile(fileWrite, os.O_RDWR|os.O_CREATE, 0644)
-	readFile, _ := os.Open(fileRead)
+	writeFile, _:= os.OpenFile(fileWrite, os.O_RDWR|os.O_CREATE, 0644)
+	readFile, err := os.Open(fileRead)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer readFile.Close()
+	defer writeFile.Close()
+
 	if writeBool == false {
 		fi, _ := readFile.Stat()
 		data := make([]byte, fi.Size())
