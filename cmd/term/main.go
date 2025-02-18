@@ -29,17 +29,19 @@ func main() {
 	if writeBool == false {
 		fmt.Print(print(data))
 	} else {
-		tmpFile, err := os.Create("tmp")
+		tmpFile, err := os.CreateTemp("", "tmp")
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer os.Remove(tmpFile.Name())
-		defer fmt.Print("Defer")
+		tmpFileName := tmpFile.Name()
+
+		defer os.Remove(tmpFileName)
 
 		tmpString, _ := print(data)
 		tmpFile.WriteString(tmpString)
+		tmpFile.Close()
 
-		cmd := exec.Command("nvim", tmpFile.Name())
+		cmd := exec.Command("nvim", tmpFileName)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -53,10 +55,8 @@ func main() {
 		err = cmd.Wait()
 		fmt.Print("Editing finished\n")
 		fmt.Print("Writing hex\n")
-		tmpFile.Sync()
-		tmpFile.Close()
 
-		tmpFile, err = os.Open("tmp")
+		tmpFile, err = os.Open(tmpFileName)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -64,6 +64,8 @@ func main() {
 		if err != nil {
 			log.Println("Error opening ", fileName)
 		}
+		defer file.Close()
+		defer tmpFile.Close()
 		write(tmpFile, file)
 		fmt.Print("Written\n")
 	}
@@ -76,8 +78,8 @@ func print(data []byte) (string, error) {
 	for index, ch := range data {
 		if index%8 == 0 && index != 0 {
 			helperString := string(data[index-8 : index])
-			helperString = strings.ReplaceAll(helperString, "\n", "")
-			helperString = strings.ReplaceAll(helperString, "\t", "")
+			helperString = strings.ReplaceAll(helperString, "\n", ".")
+			helperString = strings.ReplaceAll(helperString, "\t", ".")
 			ret.WriteString(" | " + helperString)
 			ret.WriteString(fmt.Sprintln())
 		}
@@ -89,7 +91,7 @@ func print(data []byte) (string, error) {
 func write(parseFile, writeFile *os.File) {
 	l, _ := parseFile.Stat()
 	data := make([]byte, l.Size())
-	writebytes := make([]byte, l.Size())
+	var writebytes []byte
 	parseFile.Read(data)
 	if string(data) == "" {
 		log.Fatal("Zero bytes\n")
@@ -97,20 +99,17 @@ func write(parseFile, writeFile *os.File) {
 
 	status := true
 	helperString := ""
-	i := 0
 	for _, v := range data {
-		fmt.Println(v, helperString, string(writebytes))
 		if isHexString(v) && status {
 			helperString += string(v)
 		}
 		if (v == '\t') && status {
 			byes, err := strconv.ParseInt(helperString, 16, 0)
 			if err != nil {
-				log.Print(err, v)
+				log.Print(err, "Character:", v, " helperString:", helperString)
 			}
-			writebytes[i] = byte(byes)
+			writebytes = append(writebytes, byte(byes))
 			helperString = ""
-			i++
 		}
 
 		if v == '|' {
@@ -120,6 +119,14 @@ func write(parseFile, writeFile *os.File) {
 		if v == '\n' {
 			status = true
 		}
+	}
+
+	if helperString != "" {
+		byes, err := strconv.ParseInt(helperString, 16, 0)
+		if err != nil {
+			log.Fatal(err)
+		}
+		writebytes = append(writebytes, byte(byes))
 	}
 
 	fmt.Print(writebytes)
