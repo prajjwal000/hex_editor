@@ -5,86 +5,127 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 )
 
 func main() {
-	var fileRead string
-	var fileWrite string
 	var writeBool bool
-	flag.StringVar(&fileRead, "readFile", "cmd/term/testread", "filename")
-	flag.StringVar(&fileWrite, "writeFile", "cmd/term/testwrite", "filename")
+	var fileName string
 	flag.BoolVar(&writeBool, "w", false, "Enable to write")
 	flag.Parse()
 
-	writeFile, _:= os.OpenFile(fileWrite, os.O_RDWR|os.O_CREATE, 0644)
-	readFile, err := os.Open(fileRead)
+	if writeBool {
+		fileName = os.Args[2]
+	} else {
+		fileName = os.Args[1]
+	}
+	data, err := os.ReadFile(fileName)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer readFile.Close()
-	defer writeFile.Close()
 
 	if writeBool == false {
-		fi, _ := readFile.Stat()
-		data := make([]byte, fi.Size())
-		readFile.Read(data)
-		print(data)
+		fmt.Print(print(data))
 	} else {
-		write(writeFile, readFile)
+		tmpFile, err := os.Create("tmp")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer fmt.Print("Defer")
+
+		tmpString, _ := print(data)
+		tmpFile.WriteString(tmpString)
+
+		cmd := exec.Command("nvim", tmpFile.Name())
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		err = cmd.Start()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Print("Waiting for editing\n")
+		err = cmd.Wait()
+		fmt.Print("Editing finished\n")
+		fmt.Print("Writing hex\n")
+		tmpFile.Sync()
+		tmpFile.Close()
+
+		tmpFile, err = os.Open("tmp")
+		if err != nil {
+			log.Fatal(err)
+		}
+		file, err := os.OpenFile(fileName, os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println("Error opening ", fileName)
+		}
+		write(tmpFile, file)
+		fmt.Print("Written\n")
 	}
 }
 
-func print(data []byte) error {
+func print(data []byte) (string, error) {
 	var err error = nil
-
+	ret := strings.Builder{}
 	// fmt.Print("\t1\t2\t3\t4\t5\t6\t7\t8")
 	for index, ch := range data {
 		if index%8 == 0 && index != 0 {
 			helperString := string(data[index-8 : index])
 			helperString = strings.ReplaceAll(helperString, "\n", "")
 			helperString = strings.ReplaceAll(helperString, "\t", "")
-			fmt.Println(" | ", helperString)
-			fmt.Printf("\n")
+			ret.WriteString(" | " + helperString)
+			ret.WriteString(fmt.Sprintln())
 		}
-		fmt.Printf("%x\t", ch)
+		ret.WriteString(fmt.Sprintf("%x\t", ch))
 	}
-	return err
+	return ret.String(), err
 }
 
-func write(writeFile, readFile *os.File) error {
-	var err error = nil
-	fi, _ := readFile.Stat()
-	data := make([]byte, fi.Size())
-	var towrite []string
-	readFile.Read(data)
+func write(parseFile, writeFile *os.File) {
+	l, _ := parseFile.Stat()
+	data := make([]byte, l.Size())
+	writebytes := make([]byte, l.Size())
+	parseFile.Read(data)
+	if string(data) == "" {
+		log.Fatal("Zero bytes\n")
+	}
 
-	byteVal := ""
 	status := true
-	for _, ch := range data {
-		if ch == '|' {
+	helperString := ""
+	i := 0
+	for _, v := range data {
+		fmt.Println(v, helperString, string(writebytes))
+		if isHexString(v) && status {
+			helperString += string(v)
+		}
+		if (v == '\t') && status {
+			byes, err := strconv.ParseInt(helperString, 16, 0)
+			if err != nil {
+				log.Print(err, v)
+			}
+			writebytes[i] = byte(byes)
+			helperString = ""
+			i++
+		}
+
+		if v == '|' {
 			status = false
 		}
-		if isHexString(ch) && status{
-			byteVal += string(ch)
-		}
-		if ch == '\n' || ch == '\t' && status {
-			towrite = append(towrite, byteVal)
-			byteVal = ""
+
+		if v == '\n' {
 			status = true
 		}
 	}
 
-	var towritefinal []byte
-	for i := range towrite {
-		hexByte, _ := strconv.ParseInt(towrite[i], 16, 0)
-		towritefinal = append(towritefinal, byte(hexByte))
-	}
+	fmt.Print(writebytes)
 
-	writeFile.Write(towritefinal)
+	writeFile.Write(writebytes)
 
-	return err
 }
 
 //Helper functions
